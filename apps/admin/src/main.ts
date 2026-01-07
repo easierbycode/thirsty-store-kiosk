@@ -1,15 +1,13 @@
 import { Webview } from "webview";
 
-const w=new Webview(true,{
-  title:"Thirsty Admin",
-  fullscreen:true,
-  frameless:true,
-  resizable:false
+const w = new Webview(true, {
+  width: 1280,
+  height: 800,
+  resizable: false
 });
 
-w.bind("heartbeat",()=>{
-  return { ok:true, ts: Date.now() };
-});
+w.setTitle("Thirsty Admin");
+w.setFullscreen(true);
 
-w.navigate("file://"+Deno.cwd()+"/apps/admin/dist/index.html");
+w.navigate("file://" + Deno.cwd() + "/apps/admin/dist/index.html");
 w.run();

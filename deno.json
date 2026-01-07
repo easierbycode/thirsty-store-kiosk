@@ -1,6 +1,6 @@
 {
   "imports": {
-    "webview": "https://deno.land/x/webview/mod.ts"
+    "webview": "https://deno.land/x/webview@0.8.4/mod.ts"
   },
   "tasks":{
     "build:web":"deno run -A apps/web/main.ts",
