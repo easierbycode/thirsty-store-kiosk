@@ -1,20 +1,11 @@
-async function load() {
-  const kiosks = await fetch("/api/kiosks").then(r=>r.json());
-  const root = document.getElementById("kiosks");
-  root.innerHTML = kiosks.map(k => `
-    <div class="card">
-      <b>${k.id}</b><br/>
-      Status: <span class="${k.online?'online':'offline'}">${k.online?'ONLINE':'OFFLINE'}</span><br/>
-      Last Seen: ${new Date(k.lastSeen).toLocaleString()}<br/>
-      <button onclick="disable('${k.id}')">Disable</button>
-    </div>
-  `).join("");
+async function load(){
+ const ks=await fetch("/api/kiosks").then(r=>r.json());
+ document.getElementById("kiosks").innerHTML=ks.map(k=>`
+  <div style="margin:12px;padding:12px;background:#111c32">
+   <b>${k.id}</b><br/>
+   ${k.online?"ONLINE":"OFFLINE"}<br/>
+   <button onclick="disableK('${k.id}')">Disable</button>
+  </div>`).join("");
 }
-
-window.disable = async (id) => {
-  await fetch("/api/kiosks/"+id+"/disable", { method:"POST" });
-  load();
-}
-
-load();
-setInterval(load, 5000);
+window.disableK=async id=>{await fetch("/api/kiosks/"+id+"/disable",{method:"POST"});load();}
+load();setInterval(load,5000);
