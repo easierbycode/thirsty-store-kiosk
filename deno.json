@@ -1,0 +1,11 @@
+{
+  "imports": {
+    "webview": "https://deno.land/x/webview/mod.ts"
+  },
+  "tasks":{
+    "build:web":"deno run -A apps/web/main.ts",
+    "build:mac":"deno compile --allow-all --output dist/thirsty-mac apps/admin/src/main.ts",
+    "build:windows":"deno compile --allow-all --output dist/thirsty-win.exe apps/admin/src/main.ts",
+    "build:ps2":"echo ps2 build stub"
+  }
+}
