@@ -1,7 +1,171 @@
 <!doctype html>
-<html><head><title>Thirsty Control</title></head>
-<body style="background:#0f172a;color:#f8fafc">
-<h1>Thirsty Kiosk Control Panel</h1>
-<div id="kiosks"></div>
-<script type="module" src="/ui.js"></script>
-</body></html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Thirsty Product Analysis</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <p class="eyebrow">Thirsty Control</p>
+      <h1>Product Analysis</h1>
+    </div>
+    <form id="product-search" class="search">
+      <input id="product-id" name="productId" placeholder="TikTok product ID" autocomplete="off">
+      <button type="submit">Load Product</button>
+    </form>
+  </header>
+
+  <main>
+    <section id="setup-warning" class="notice hidden"></section>
+
+    <section class="product-shell">
+      <div class="product-hero panel">
+        <div>
+          <p class="eyebrow">Product Details</p>
+          <h2 id="product-name">Waiting for Graylog data</h2>
+          <p id="product-meta" class="muted">Configure Graylog, then load a TikTok product ID.</p>
+        </div>
+        <div class="price-tile">
+          <span>Min SKU original price</span>
+          <strong id="min-price">$0.00</strong>
+        </div>
+      </div>
+
+      <nav class="tabs" aria-label="Product analysis tabs">
+        <button class="active" type="button">Performance</button>
+        <button type="button">Creator & Content</button>
+        <button type="button">Audience</button>
+      </nav>
+
+      <section class="metrics-grid">
+        <article class="panel metric">
+          <span>GMV</span>
+          <strong id="gmv">$0.00</strong>
+        </article>
+        <article class="panel metric">
+          <span>Customers</span>
+          <strong id="customers">0</strong>
+        </article>
+        <article class="panel metric">
+          <span>Quantity sold</span>
+          <strong id="quantity">0</strong>
+        </article>
+        <article class="panel metric">
+          <span>SKU orders</span>
+          <strong id="sku-orders">0</strong>
+        </article>
+      </section>
+
+      <section class="metrics-grid">
+        <article class="panel metric">
+          <span>Refund amount</span>
+          <strong id="refunds">$0.00</strong>
+        </article>
+        <article class="panel metric">
+          <span>Units refunded</span>
+          <strong id="units-refunded">0</strong>
+        </article>
+        <article class="panel metric">
+          <span>Videos</span>
+          <strong id="videos">0</strong>
+        </article>
+        <article class="panel metric">
+          <span>LIVE streams</span>
+          <strong id="live-streams">0</strong>
+        </article>
+      </section>
+    </section>
+
+    <section class="split">
+      <article class="panel">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Sample Valuation</p>
+            <h2>Household Replacement Value</h2>
+          </div>
+          <span id="valuation-updated" class="pill">No data yet</span>
+        </div>
+        <div class="valuation-grid">
+          <div>
+            <span>Total retail value</span>
+            <strong id="total-retail">$0.00</strong>
+          </div>
+          <div>
+            <span>Total samples</span>
+            <strong id="total-samples">0</strong>
+          </div>
+          <div>
+            <span>Average sample</span>
+            <strong id="average-sample">$0.00</strong>
+          </div>
+          <div>
+            <span>Maintainable monthly</span>
+            <strong id="monthly-value">$0.00</strong>
+          </div>
+        </div>
+        <div class="resale">
+          <span>10% resale: <b id="resale-10">$0.00</b></span>
+          <span>20% resale: <b id="resale-20">$0.00</b></span>
+          <span>30% resale: <b id="resale-30">$0.00</b></span>
+        </div>
+      </article>
+
+      <article class="panel">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Sample Intake</p>
+            <h2>Scan to Attach Value</h2>
+          </div>
+        </div>
+        <form id="sample-intake" class="intake">
+          <input name="barcode" placeholder="Barcode or QR code">
+          <input name="productId" placeholder="TikTok product ID">
+          <input name="location" placeholder="Shelf / bundle">
+          <button type="submit">Stage Intake</button>
+        </form>
+        <p id="intake-result" class="muted">This stages the scanned sample against Graylog-backed product analysis.</p>
+      </article>
+    </section>
+
+    <section class="panel">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">Brian's Comparison Engine</p>
+          <h2>What Should We Film Next?</h2>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Product</th>
+              <th>Rank</th>
+              <th>Creator videos</th>
+              <th>Platform videos</th>
+              <th>Sales</th>
+              <th>Sample value</th>
+              <th>Signal</th>
+            </tr>
+          </thead>
+          <tbody id="comparison-rows"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">Kiosk Fleet</p>
+          <h2>Heartbeat Monitor</h2>
+        </div>
+      </div>
+      <div id="kiosks" class="kiosk-grid"></div>
+    </section>
+  </main>
+
+  <script type="module" src="/ui.js"></script>
+</body>
+</html>
