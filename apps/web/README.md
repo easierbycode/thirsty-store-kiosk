@@ -13,6 +13,17 @@ Set these in Deno Deploy:
 - `GRAYLOG_RANGE_SECONDS`: Optional search window. Defaults to 7 days.
 - `GRAYLOG_PRODUCT_QUERY`: Optional default query for the dashboard product lists. Defaults to `*`.
 
+## Durable sample persistence (GELF write-back)
+
+The deployed filesystem is ephemeral, so sample products and price edits are
+also written back to Graylog as GELF messages (`core_data_json` +
+`sample_edit_json` fields) and recovered on read. This works out of the box
+when `GRAYLOG_URL` points at a `…-api.…` ngrok tunnel with a matching
+`…-gelf.…` tunnel (see tok-scrape `ngrok.yml`); override with:
+
+- `GRAYLOG_GELF_URL`: Full GELF HTTP input URL, for example `https://tok-graylog-gelf.ngrok-free.dev/gelf`.
+- `GRAYLOG_GELF_KEY`: Value stamped as `_graylog_key` on each message. Defaults to `GRAYLOG_TOKEN`.
+
 ## Existing Graylog fields
 
 The mapper accepts common field variants so existing data does not need to be renamed.

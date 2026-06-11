@@ -4,8 +4,10 @@ import {
   envValue,
   fetchProductAnalysis,
   fetchRecentProducts,
+  fetchSampleEditRecords,
   type ProductAnalysis,
   type SampleValuation,
+  sendGelfMessage,
 } from "./graylog.ts";
 
 export type SamplePriceEdit = {
@@ -39,6 +41,7 @@ export type UnpricedSample = {
   fetchedAt: string | null;
   updatedAt: string | null;
   priced: boolean;
+  persistedTo?: string[];
 };
 
 export type UnpricedSampleList = {
@@ -89,7 +92,7 @@ export async function listUnpricedSamples(
   query = "",
   limit = 100,
 ): Promise<UnpricedSampleList> {
-  const store = await readStore();
+  const store = await loadStore();
   const products = await fetchProductsWithStored(1000, store);
   const normalizedQuery = query.trim().toLowerCase();
   const items = products
@@ -134,7 +137,7 @@ export async function updateSamplePrice(
   productId: string,
   input: SampleUpdateInput,
 ): Promise<UnpricedSample> {
-  const store = await readStore();
+  const store = await loadStore();
   const products = await fetchProductsWithStored(1000, store);
   const product = products.find((item) => item.productId === productId);
   if (!product) {
@@ -176,9 +179,16 @@ export async function updateSamplePrice(
       : undefined,
     updatedAt: now,
   };
-  await writeStore(store);
+  const edit = store.edits[productId];
+  const persistedTo = await persistStore(store, {
+    shortMessage: `thirsty sample price: ${product.name}`,
+    fields: {
+      sample_source: edit.source,
+      sample_edit_json: JSON.stringify(edit),
+    },
+  });
 
-  return sampleFromProduct(product, store.edits[productId]);
+  return { ...sampleFromProduct(product, edit), persistedTo };
 }
 
 export async function upsertSampleProduct(
@@ -187,7 +197,7 @@ export async function upsertSampleProduct(
   const name = String(input.name || "").trim();
   if (!name) throw new Error("Product name is required");
 
-  const store = await readStore();
+  const store = await loadStore();
   const productId = String(input.productId || stableProductId(name)).trim();
   const existingProduct = store.products[productId];
   const existingEdit = store.edits[productId];
@@ -250,15 +260,40 @@ export async function upsertSampleProduct(
     };
   }
 
-  await writeStore(store);
+  // The product row goes out as core_data_json so the regular Graylog product
+  // pipeline picks it up (the price stays on the edit, keeping the row in the
+  // recovery queue with its Extension source tag, same as the local store).
+  const gelfFields: Record<string, unknown> = {
+    sample_source: "extension",
+    core_data_json: JSON.stringify({
+      productId,
+      name,
+      min_sku_original_price: 0,
+      sample_count: sampleCount,
+      category,
+      seller,
+      estimated_retail_value: price * sampleCount,
+      scrapedAt: optionalString(input.fetchedAt) ?? now,
+    }),
+  };
+  if (store.edits[productId]) {
+    gelfFields.sample_edit_json = JSON.stringify(store.edits[productId]);
+  }
+  const persistedTo = await persistStore(store, {
+    shortMessage: `thirsty sample product: ${name}`,
+    fields: gelfFields,
+  });
 
-  return sampleFromProduct(store.products[productId], store.edits[productId]);
+  return {
+    ...sampleFromProduct(store.products[productId], store.edits[productId]),
+    persistedTo,
+  };
 }
 
 export async function fetchPriceForSample(
   productId: string,
 ): Promise<UnpricedSample> {
-  const store = await readStore();
+  const store = await loadStore();
   const products = await fetchProductsWithStored(1000, store);
   const product = products.find((item) => item.productId === productId);
   if (!product) {
@@ -293,7 +328,7 @@ export async function fetchPriceForSample(
 export async function fetchProductWithEdits(
   productId: string,
 ): Promise<ProductAnalysis | null> {
-  const store = await readStore();
+  const store = await loadStore();
   const product = await fetchProductAnalysis(productId) ??
     store.products[productId];
   if (!product) return null;
@@ -319,7 +354,7 @@ export async function fetchProductWithEdits(
 export async function fetchSampleValuationWithEdits(): Promise<
   SampleValuation
 > {
-  const store = await readStore();
+  const store = await loadStore();
   const products = await fetchProductsWithStored(1000, store);
   const samples = products
     .filter((product) => product.sampleCount > 0)
@@ -352,7 +387,7 @@ export async function fetchSampleValuationWithEdits(): Promise<
 }
 
 export async function fetchComparisonWithEdits(): Promise<ComparisonRow[]> {
-  const store = await readStore();
+  const store = await loadStore();
   const products = await fetchProductsWithStored(200, store);
 
   return products
@@ -432,13 +467,25 @@ async function fetchScrapeCreatorsPrice(
   const base =
     (envValue("SCRAPECREATORS_API_BASE") || DEFAULT_SCRAPECREATORS_BASE)
       .replace(/\/+$/, "");
+  const region = envValue("SCRAPECREATORS_REGION") || DEFAULT_REGION;
+
+  if (product.productId.startsWith("9")) {
+    return fetchScrapeCreatorsPriceByName(base, apiKey, region, product);
+  }
+
+  return fetchScrapeCreatorsPriceByUrl(base, apiKey, region, product);
+}
+
+async function fetchScrapeCreatorsPriceByUrl(
+  base: string,
+  apiKey: string,
+  region: string,
+  product: ProductAnalysis,
+): Promise<ScrapeCreatorsPrice> {
   const productUrl = tiktokProductUrl(product);
   const url = new URL(`${base}/v1/tiktok/product`);
   url.searchParams.set("url", productUrl);
-  url.searchParams.set(
-    "region",
-    envValue("SCRAPECREATORS_REGION") || DEFAULT_REGION,
-  );
+  url.searchParams.set("region", region);
 
   const response = await fetch(url, {
     headers: {
@@ -466,6 +513,48 @@ async function fetchScrapeCreatorsPrice(
     seller: stringAt(body, ["product_info", "seller", "name"]) ||
       stringAt(body, ["seller", "name"]) ||
       stringAt(body, ["shop_info", "shop_name"]),
+  };
+}
+
+async function fetchScrapeCreatorsPriceByName(
+  base: string,
+  apiKey: string,
+  region: string,
+  product: ProductAnalysis,
+): Promise<ScrapeCreatorsPrice> {
+  const url = new URL(`${base}/v1/tiktok/shop/search`);
+  url.searchParams.set("query", product.name);
+  url.searchParams.set("region", region);
+
+  const response = await fetch(url, {
+    headers: {
+      "accept": "application/json",
+      "content-type": "application/json",
+      "x-api-key": apiKey,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      `ScrapeCreators name lookup failed: ${response.status} ${await response
+        .text()}`,
+    );
+  }
+
+  const body = await response.json();
+  const result = bestScrapeCreatorsSearchProduct(body, product.name);
+  if (!result) {
+    return {
+      price: 0,
+      sourceUrl: url.href,
+    };
+  }
+
+  return {
+    price: priceFromScrapeCreatorsSearchProduct(result),
+    sourceUrl: scrapeCreatorsSearchProductUrl(result) || url.href,
+    title: scrapeCreatorsSearchProductTitle(result),
+    seller: scrapeCreatorsSearchProductSeller(result),
   };
 }
 
@@ -514,6 +603,115 @@ function skuPriceCandidates(value: unknown): unknown[] {
   ]);
 }
 
+function bestScrapeCreatorsSearchProduct(
+  body: unknown,
+  query: string,
+): Record<string, unknown> | null {
+  const products = scrapeCreatorsSearchProducts(body);
+  let best: Record<string, unknown> | null = null;
+  let bestScore = -Infinity;
+
+  for (const product of products) {
+    if (priceFromScrapeCreatorsSearchProduct(product) <= 0) continue;
+
+    const score = searchProductScore(
+      query,
+      scrapeCreatorsSearchProductTitle(product) || "",
+    );
+    if (score > bestScore) {
+      best = product;
+      bestScore = score;
+    }
+  }
+
+  return best;
+}
+
+function scrapeCreatorsSearchProducts(
+  body: unknown,
+): Record<string, unknown>[] {
+  const candidates = [
+    valueAt(body, ["products"]),
+    valueAt(body, ["data", "products"]),
+    valueAt(body, ["items"]),
+    valueAt(body, ["data", "items"]),
+  ];
+
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate)) return candidate.filter(isRecord);
+  }
+
+  return [];
+}
+
+function searchProductScore(query: string, title: string): number {
+  const normalizedQuery = searchText(query);
+  const normalizedTitle = searchText(title);
+  if (!normalizedQuery || !normalizedTitle) return 0;
+  if (normalizedTitle === normalizedQuery) return 1000;
+  if (normalizedTitle.includes(normalizedQuery)) return 800;
+  if (normalizedQuery.includes(normalizedTitle)) return 700;
+
+  const queryTerms = new Set(normalizedQuery.split(" ").filter(Boolean));
+  const titleTerms = new Set(normalizedTitle.split(" ").filter(Boolean));
+  let shared = 0;
+  for (const term of queryTerms) {
+    if (titleTerms.has(term)) shared++;
+  }
+
+  return shared / Math.max(queryTerms.size, 1);
+}
+
+function searchText(value: string): string {
+  return value.toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function priceFromScrapeCreatorsSearchProduct(product: unknown): number {
+  const candidates = [
+    valueAt(product, ["price"]),
+    valueAt(product, ["sale_price"]),
+    valueAt(product, ["original_price"]),
+    valueAt(product, ["product_price_info", "sale_price_decimal"]),
+    valueAt(product, ["product_price_info", "sale_price_format"]),
+    valueAt(product, ["product_price_info", "single_product_price_decimal"]),
+    valueAt(product, ["product_price_info", "single_product_price_format"]),
+    valueAt(product, ["product_price_info", "original_price"]),
+    valueAt(product, ["product_price_info", "original_price_value"]),
+  ];
+
+  for (const candidate of candidates) {
+    const price = numberFrom(candidate, 0);
+    if (price > 0) return price;
+  }
+
+  return 0;
+}
+
+function scrapeCreatorsSearchProductTitle(
+  product: unknown,
+): string | undefined {
+  return stringAt(product, ["title"]) ||
+    stringAt(product, ["name"]) ||
+    stringAt(product, ["product_name"]);
+}
+
+function scrapeCreatorsSearchProductSeller(
+  product: unknown,
+): string | undefined {
+  return stringAt(product, ["seller_info", "shop_name"]) ||
+    stringAt(product, ["shop_name"]) ||
+    stringAt(product, ["seller", "name"]);
+}
+
+function scrapeCreatorsSearchProductUrl(product: unknown): string | undefined {
+  return stringAt(product, ["url"]) ||
+    stringAt(product, ["seo_url", "canonical_url"]) ||
+    stringAt(product, ["canonical_url"]);
+}
+
 async function readStore(): Promise<SampleStore> {
   try {
     const store = JSON.parse(await Deno.readTextFile(storePath()));
@@ -542,6 +740,86 @@ async function writeStore(store: SampleStore): Promise<void> {
 
 function storePath(): string {
   return envValue("THIRSTY_SAMPLE_STORE") || DEFAULT_STORE_PATH;
+}
+
+// The local JSON store is wiped whenever the deployed app restarts, so the
+// durable copy of every price edit lives in Graylog (sample_edit_json
+// messages). Reads merge both, newest updatedAt per product winning.
+async function loadStore(): Promise<SampleStore> {
+  const store = await readStore();
+
+  for (const record of await fetchSampleEditRecords()) {
+    const edit = editFromRecord(record);
+    if (!edit) continue;
+
+    const existing = store.edits[edit.productId];
+    if (!existing || edit.updatedAt > (existing.updatedAt || "")) {
+      store.edits[edit.productId] = edit;
+    }
+  }
+
+  return store;
+}
+
+function editFromRecord(
+  record: Record<string, unknown>,
+): SamplePriceEdit | null {
+  const productId = String(record.productId || "").trim();
+  const price = numberFrom(record.price, NaN);
+  if (!productId || !Number.isFinite(price) || price < 0) return null;
+
+  const sampleCount = numberFrom(record.sampleCount, NaN);
+  const source = record.source === "scrapecreators" ||
+      record.source === "extension"
+    ? record.source
+    : "manual";
+
+  return {
+    productId,
+    price,
+    sampleCount: Number.isFinite(sampleCount) ? sampleCount : undefined,
+    notes: optionalString(record.notes),
+    source,
+    sourceUrl: optionalString(record.sourceUrl),
+    apiTitle: optionalString(record.apiTitle),
+    apiSeller: optionalString(record.apiSeller),
+    fetchedAt: optionalString(record.fetchedAt),
+    updatedAt: optionalString(record.updatedAt) || "",
+  };
+}
+
+type GelfRecord = {
+  shortMessage: string;
+  fields: Record<string, unknown>;
+};
+
+// Persist everywhere we can reach: the local file (fast reads in dev, but
+// read-only or ephemeral once deployed) and Graylog (durable). Only when
+// neither accepts the write did the save actually fail.
+async function persistStore(
+  store: SampleStore,
+  gelf: GelfRecord,
+): Promise<string[]> {
+  const targets: string[] = [];
+
+  try {
+    await writeStore(store);
+    targets.push("file");
+  } catch {
+    // Expected on deployed read-only filesystems; Graylog is the durable copy.
+  }
+
+  if (await sendGelfMessage(gelf.shortMessage, gelf.fields)) {
+    targets.push("graylog");
+  }
+
+  if (!targets.length) {
+    throw new Error(
+      "Could not persist sample data to the local store or Graylog",
+    );
+  }
+
+  return targets;
 }
 
 async function fetchProductsWithStored(

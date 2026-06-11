@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "thirsty-web",
+      "runtimeExecutable": "deno",
+      "runtimeArgs": ["run", "-A", "--env-file=.env", "apps/web/main.ts"],
+      "port": 8000
+    }
+  ]
+}
