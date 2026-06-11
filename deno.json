@@ -11,7 +11,7 @@
     "app": "thirsty-store-kiosk",
     "build": "deno task build",
     "runtime": {
-      "type": "dynamic",
+      "mode": "dynamic",
       "entrypoint": "apps/web/main.ts"
     }
   }
