@@ -8,6 +8,11 @@
   },
   "deploy": {
     "org": "easierbycode",
-    "app": "thirsty-store-kiosk"
+    "app": "thirsty-store-kiosk",
+    "build": "deno task build",
+    "runtime": {
+      "type": "dynamic",
+      "entrypoint": "./apps/web/main.ts"
+    }
   }
 }
