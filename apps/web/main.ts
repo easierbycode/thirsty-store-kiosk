@@ -11,6 +11,7 @@ import {
   fetchSampleValuationWithEdits,
   listUnpricedSamples,
   updateSamplePrice,
+  upsertSampleProduct,
 } from "./core/samples.ts";
 
 const ROOT = fromFileUrl(new URL(".", import.meta.url));
@@ -109,6 +110,11 @@ async function handleRequest(req: Request): Promise<Response> {
           Number(url.searchParams.get("limit") || 100),
         ),
       );
+    }
+
+    if (url.pathname === "/api/sample-products") {
+      if (req.method !== "POST") return jsonError("Method not allowed", 405);
+      return Response.json(await upsertSampleProduct(await readJsonBody(req)));
     }
 
     const unpricedMatch = url.pathname.match(

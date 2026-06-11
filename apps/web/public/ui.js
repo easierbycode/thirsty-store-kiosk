@@ -286,7 +286,9 @@ function unpricedRowHtml(sample) {
         <input class="price-input tnum" type="number" min="0" step="0.01" placeholder="0.00" value="${
     escapeAttr(priceInputValue(sample.price))
   }">
-        <span class="cell-hint tnum">Graylog ${money(sample.originalPrice)}</span>
+        <span class="cell-hint tnum">Graylog ${
+    money(sample.originalPrice)
+  }</span>
       </div>
       <div class="cell">
         <span class="m-label">Samples</span>
@@ -419,12 +421,14 @@ function priceInputValue(value) {
 
 function sourceLabel(value) {
   if (value === "scrapecreators") return "API";
+  if (value === "extension") return "Extension";
   if (value === "manual") return "Manual";
   return "Graylog";
 }
 
 function sourceClass(value) {
   if (value === "scrapecreators") return "api";
+  if (value === "extension") return "api";
   if (value === "manual") return "manual";
   return "graylog";
 }

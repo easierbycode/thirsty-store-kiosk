@@ -13,7 +13,7 @@ export type SamplePriceEdit = {
   price: number;
   sampleCount?: number;
   notes?: string;
-  source: "manual" | "scrapecreators";
+  source: "manual" | "scrapecreators" | "extension";
   sourceUrl?: string;
   apiTitle?: string;
   apiSeller?: string;
@@ -51,6 +51,7 @@ export type UnpricedSampleList = {
 type SampleStore = {
   version: 1;
   edits: Record<string, SamplePriceEdit>;
+  products: Record<string, ProductAnalysis>;
 };
 
 type SampleUpdateInput = {
@@ -62,6 +63,15 @@ type SampleUpdateInput = {
   apiTitle?: unknown;
   apiSeller?: unknown;
   fetchedAt?: unknown;
+};
+
+type SampleProductInput = SampleUpdateInput & {
+  productId?: unknown;
+  name?: unknown;
+  category?: unknown;
+  seller?: unknown;
+  sourceUrl?: unknown;
+  lastSeen?: unknown;
 };
 
 type ScrapeCreatorsPrice = {
@@ -79,8 +89,8 @@ export async function listUnpricedSamples(
   query = "",
   limit = 100,
 ): Promise<UnpricedSampleList> {
-  const products = await fetchRecentProducts(1000);
   const store = await readStore();
+  const products = await fetchProductsWithStored(1000, store);
   const normalizedQuery = query.trim().toLowerCase();
   const items = products
     .filter((product) => product.sampleCount > 0)
@@ -124,13 +134,13 @@ export async function updateSamplePrice(
   productId: string,
   input: SampleUpdateInput,
 ): Promise<UnpricedSample> {
-  const products = await fetchRecentProducts(1000);
+  const store = await readStore();
+  const products = await fetchProductsWithStored(1000, store);
   const product = products.find((item) => item.productId === productId);
   if (!product) {
     throw new Error(`Product ${productId} was not found in Graylog`);
   }
 
-  const store = await readStore();
   const existing = store.edits[productId];
   const now = new Date().toISOString();
   const price = input.price === undefined
@@ -171,10 +181,85 @@ export async function updateSamplePrice(
   return sampleFromProduct(product, store.edits[productId]);
 }
 
+export async function upsertSampleProduct(
+  input: SampleProductInput,
+): Promise<UnpricedSample> {
+  const name = String(input.name || "").trim();
+  if (!name) throw new Error("Product name is required");
+
+  const store = await readStore();
+  const productId = String(input.productId || stableProductId(name)).trim();
+  const existingProduct = store.products[productId];
+  const existingEdit = store.edits[productId];
+  const now = new Date().toISOString();
+  const price = input.price === undefined
+    ? existingEdit?.price ?? existingProduct?.min_sku_original_price ?? 0
+    : numericInput(input.price, "price");
+  const sampleCount = input.sampleCount === undefined
+    ? existingEdit?.sampleCount ?? existingProduct?.sampleCount ?? 1
+    : numericInput(input.sampleCount, "sample count");
+  const notes = input.notes === undefined
+    ? existingEdit?.notes
+    : String(input.notes || "").trim();
+  const sourceUrl = optionalString(input.sourceUrl) ??
+    existingEdit?.sourceUrl;
+  const seller = optionalString(input.apiSeller) ??
+    optionalString(input.seller) ??
+    existingProduct?.seller ?? "Extension";
+  const category = optionalString(input.category) ??
+    existingProduct?.category ??
+    "Samples";
+  const lastSeen = optionalString(input.lastSeen) ??
+    existingProduct?.lastSeen ?? now;
+
+  store.products[productId] = {
+    productId,
+    name,
+    priceRange: price > 0 ? formatUsd(price) : "Unknown",
+    min_sku_original_price: 0,
+    category,
+    categoryRank: existingProduct?.categoryRank ?? null,
+    seller,
+    creators: existingProduct?.creators ?? 0,
+    liveStreams: existingProduct?.liveStreams ?? 0,
+    videos: existingProduct?.videos ?? 0,
+    gmv: existingProduct?.gmv ?? 0,
+    customers: existingProduct?.customers ?? 0,
+    quantity: existingProduct?.quantity ?? 0,
+    skuOrders: existingProduct?.skuOrders ?? 0,
+    refunds: existingProduct?.refunds ?? 0,
+    unitsRefunded: existingProduct?.unitsRefunded ?? 0,
+    sampleCount,
+    estimatedRetailValue: price * sampleCount,
+    lastSeen,
+  };
+
+  if (price > 0) {
+    store.edits[productId] = {
+      productId,
+      price,
+      sampleCount,
+      notes,
+      source: "extension",
+      sourceUrl,
+      apiTitle: name,
+      apiSeller: seller,
+      fetchedAt: optionalString(input.fetchedAt) ?? existingEdit?.fetchedAt ??
+        now,
+      updatedAt: now,
+    };
+  }
+
+  await writeStore(store);
+
+  return sampleFromProduct(store.products[productId], store.edits[productId]);
+}
+
 export async function fetchPriceForSample(
   productId: string,
 ): Promise<UnpricedSample> {
-  const products = await fetchRecentProducts(1000);
+  const store = await readStore();
+  const products = await fetchProductsWithStored(1000, store);
   const product = products.find((item) => item.productId === productId);
   if (!product) {
     throw new Error(`Product ${productId} was not found in Graylog`);
@@ -187,7 +272,7 @@ export async function fetchPriceForSample(
 
   // Look up only -- do not persist. The client previews this proposed price
   // and must confirm before updateSamplePrice() commits it to the store.
-  const existing = (await readStore()).edits[productId];
+  const existing = store.edits[productId];
   const now = new Date().toISOString();
   const proposed: SamplePriceEdit = {
     productId,
@@ -208,13 +293,15 @@ export async function fetchPriceForSample(
 export async function fetchProductWithEdits(
   productId: string,
 ): Promise<ProductAnalysis | null> {
-  const product = await fetchProductAnalysis(productId);
+  const store = await readStore();
+  const product = await fetchProductAnalysis(productId) ??
+    store.products[productId];
   if (!product) return null;
 
   // The product-detail view reads raw Graylog data, so a price recovered via
   // Save or Fetch API (stored as an edit) would otherwise never show here even
   // though the sample queue reflects it. Apply the edit so both views agree.
-  const edit = (await readStore()).edits[productId];
+  const edit = store.edits[productId];
   if (!edit) return product;
 
   const price = edit.price ?? product.min_sku_original_price;
@@ -232,8 +319,8 @@ export async function fetchProductWithEdits(
 export async function fetchSampleValuationWithEdits(): Promise<
   SampleValuation
 > {
-  const products = await fetchRecentProducts(1000);
   const store = await readStore();
+  const products = await fetchProductsWithStored(1000, store);
   const samples = products
     .filter((product) => product.sampleCount > 0)
     .map((product) =>
@@ -265,8 +352,8 @@ export async function fetchSampleValuationWithEdits(): Promise<
 }
 
 export async function fetchComparisonWithEdits(): Promise<ComparisonRow[]> {
-  const products = await fetchRecentProducts(200);
   const store = await readStore();
+  const products = await fetchProductsWithStored(200, store);
 
   return products
     .map((product) => {
@@ -434,13 +521,17 @@ async function readStore(): Promise<SampleStore> {
       store && typeof store === "object" && store.version === 1 &&
       isRecord(store.edits)
     ) {
-      return store as SampleStore;
+      return {
+        version: 1,
+        edits: store.edits,
+        products: isRecord(store.products) ? store.products : {},
+      } as SampleStore;
     }
   } catch {
     // Missing or malformed stores fall back to an empty edit map.
   }
 
-  return { version: 1, edits: {} };
+  return { version: 1, edits: {}, products: {} };
 }
 
 async function writeStore(store: SampleStore): Promise<void> {
@@ -451,6 +542,25 @@ async function writeStore(store: SampleStore): Promise<void> {
 
 function storePath(): string {
   return envValue("THIRSTY_SAMPLE_STORE") || DEFAULT_STORE_PATH;
+}
+
+async function fetchProductsWithStored(
+  limit: number,
+  store: SampleStore,
+): Promise<ProductAnalysis[]> {
+  const products = new Map<string, ProductAnalysis>();
+
+  for (const product of await fetchRecentProducts(limit)) {
+    products.set(product.productId, product);
+  }
+
+  for (const product of Object.values(store.products)) {
+    products.set(product.productId, products.get(product.productId) ?? product);
+  }
+
+  return [...products.values()]
+    .sort((a, b) => (b.lastSeen || "").localeCompare(a.lastSeen || ""))
+    .slice(0, limit);
 }
 
 function numericInput(value: unknown, label: string): number {
@@ -477,6 +587,15 @@ function formatUsd(value: number): string {
 
 function optionalString(value: unknown): string | undefined {
   return typeof value === "string" && value ? value : undefined;
+}
+
+function stableProductId(name: string): string {
+  let hash = 2166136261;
+  for (let i = 0; i < name.length; i++) {
+    hash ^= name.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `900${String(hash >>> 0).padStart(10, "0")}`;
 }
 
 function tiktokProductUrl(product: ProductAnalysis): string {
