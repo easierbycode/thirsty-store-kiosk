@@ -1,7 +1,4 @@
 {
-  "imports": {
-    "webview": "https://deno.land/x/webview@0.8.4/mod.ts"
-  },
   "tasks": {
     "build:web": "deno run -A --watch --env-file=.env apps/web/main.ts",
     "build:mac": "deno compile --allow-all --env-file=.env --include apps/web/public --output dist/thirsty-mac apps/admin/src/main.ts",
