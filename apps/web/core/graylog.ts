@@ -55,11 +55,15 @@ export type SampleValuation = {
   lastUpdated: string | null;
 };
 
-type GraylogMessageEnvelope = {
-  message?: Record<string, unknown>;
+type GraylogTabularResponse = {
+  schema?: Array<{ field?: string }>;
+  datarows?: unknown[][];
 };
 
+let envFileCache: Record<string, string> | null = null;
+
 const PRODUCT_ID_FIELDS = [
+  "Product ID",
   "productId",
   "product_id",
   "tiktok_product_id",
@@ -70,6 +74,8 @@ const PRODUCT_ID_FIELDS = [
 ];
 
 const PRODUCT_NAME_FIELDS = [
+  "Product",
+  "Product Name",
   "name",
   "product_name",
   "productName",
@@ -80,6 +86,8 @@ const PRODUCT_NAME_FIELDS = [
 ];
 
 const MIN_PRICE_FIELDS = [
+  "Min SKU Original Price",
+  "Price",
   "min_sku_original_price",
   "minSkuOriginalPrice",
   "min_original_price",
@@ -91,6 +99,7 @@ const MIN_PRICE_FIELDS = [
 ];
 
 const SAMPLE_COUNT_FIELDS = [
+  "Sample Count",
   "sample_count",
   "sampleCount",
   "samples",
@@ -99,54 +108,152 @@ const SAMPLE_COUNT_FIELDS = [
   "available_samples",
 ];
 
+const SEARCH_FIELDS = [
+  "timestamp",
+  "source",
+  "message",
+  "full_message",
+  "core_data_json",
+  "rows_json",
+  "summary_json",
+  "Product",
+  "Product ID",
+  "GMV",
+  "Estimated commission",
+  "Items sold",
+  "productId",
+  "product_id",
+  "product_name",
+  "min_sku_original_price",
+  "category",
+  "category_rank",
+  "seller",
+  "creator",
+  "creators_count",
+  "videos_count",
+  "recent_livestreams_count",
+  "gmv_direct",
+  "gmv_affiliate",
+  "items_sold",
+  "scrapedAt",
+];
+
 export function graylogConfigFromEnv(): GraylogConfig | null {
-  const url = normalizeGraylogUrl(Deno.env.get("GRAYLOG_URL"));
+  const url = normalizeGraylogUrl(
+    envValue("GRAYLOG_API_URL") || envValue("GRAYLOG_URL"),
+  );
   if (!url) return null;
 
   return {
     url,
-    token: Deno.env.get("GRAYLOG_TOKEN") || undefined,
-    username: Deno.env.get("GRAYLOG_USERNAME") || undefined,
-    password: Deno.env.get("GRAYLOG_PASSWORD") || undefined,
-    streamId: Deno.env.get("GRAYLOG_STREAM_ID") || undefined,
-    rangeSeconds: numberFrom(Deno.env.get("GRAYLOG_RANGE_SECONDS"), 60 * 60 * 24 * 7),
-    defaultQuery: Deno.env.get("GRAYLOG_PRODUCT_QUERY") || "*",
+    token: envValue("GRAYLOG_TOKEN"),
+    username: envValue("GRAYLOG_USERNAME"),
+    password: envValue("GRAYLOG_PASSWORD"),
+    streamId: envValue("GRAYLOG_STREAM_ID"),
+    rangeSeconds: numberFrom(
+      envValue("GRAYLOG_RANGE_SECONDS"),
+      60 * 60 * 24 * 30,
+    ),
+    defaultQuery: envValue("GRAYLOG_PRODUCT_QUERY") ||
+      "rows_json:* OR core_data_json:*",
   };
 }
 
 function normalizeGraylogUrl(value: string | undefined): string {
-  return (value || "").replace(/\/+$/, "").replace(/\/api$/, "");
+  const normalized = (value || "").replace(/\/+$/, "").replace(/\/api$/, "");
+  if (!normalized) return "";
+
+  try {
+    const url = new URL(normalized);
+    if (url.pathname === "/gelf") {
+      url.pathname = "";
+      url.hostname = url.hostname.replace("-gelf.", "-api.");
+      return url.href.replace(/\/+$/, "");
+    }
+  } catch {
+    // Keep the raw normalized value for local or non-URL Graylog bases.
+  }
+
+  return normalized;
 }
 
-export async function fetchProductAnalysis(productId: string): Promise<ProductAnalysis | null> {
+export function envValue(name: string): string | undefined {
+  const fileValue = dotEnv()[name];
+  if (fileValue !== undefined && fileValue !== "") return fileValue;
+  return Deno.env.get(name) || undefined;
+}
+
+function dotEnv(): Record<string, string> {
+  if (envFileCache) return envFileCache;
+
+  envFileCache = {};
+
+  try {
+    const text = Deno.readTextFileSync(".env");
+    for (const line of text.split(/\r?\n/)) {
+      const match = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/);
+      if (!match) continue;
+
+      envFileCache[match[1]] = unquoteEnvValue(match[2]);
+    }
+  } catch {
+    // The deployed app can still use real environment variables.
+  }
+
+  return envFileCache;
+}
+
+function unquoteEnvValue(value: string): string {
+  if (
+    (value.startsWith('"') && value.endsWith('"')) ||
+    (value.startsWith("'") && value.endsWith("'"))
+  ) {
+    return value.slice(1, -1);
+  }
+
+  return value;
+}
+
+export async function fetchProductAnalysis(
+  productId: string,
+): Promise<ProductAnalysis | null> {
   const config = graylogConfigFromEnv();
   if (!config) return null;
 
-  const escapedId = escapeGraylogValue(productId);
-  const query = PRODUCT_ID_FIELDS.map((field) => `${field}:${escapedId}`).join(" OR ");
-  const messages = await searchGraylog(config, query, 50);
-  const products = messages.map(normalizeProduct).filter(Boolean) as ProductAnalysis[];
+  const products = await fetchRecentProducts(1000);
   const exact = products.find((product) => product.productId === productId);
 
-  return exact || products[0] || null;
+  return exact || null;
 }
 
-export async function fetchRecentProducts(limit = 100): Promise<ProductAnalysis[]> {
+export async function fetchRecentProducts(
+  limit = 100,
+): Promise<ProductAnalysis[]> {
   const config = graylogConfigFromEnv();
   if (!config) return [];
 
-  const messages = await searchGraylog(config, config.defaultQuery, limit);
+  const messageLimit = Math.max(25, Math.min(limit, 500));
+  const messages = await searchGraylog(
+    config,
+    config.defaultQuery,
+    messageLimit,
+  );
   const products = new Map<string, ProductAnalysis>();
 
-  for (const message of messages) {
-    const product = normalizeProduct(message);
+  for (const record of productRecordsFromMessages(messages)) {
+    const product = normalizeProduct(record);
     if (!product) continue;
 
     const existing = products.get(product.productId);
-    products.set(product.productId, existing ? mergeProduct(existing, product) : product);
+    products.set(
+      product.productId,
+      existing ? mergeProduct(existing, product) : product,
+    );
   }
 
-  return [...products.values()].sort((a, b) => (b.lastSeen || "").localeCompare(a.lastSeen || ""));
+  return [...products.values()]
+    .sort((a, b) => (b.lastSeen || "").localeCompare(a.lastSeen || ""))
+    .slice(0, limit);
 }
 
 export async function fetchComparison(): Promise<ComparisonRow[]> {
@@ -169,7 +276,12 @@ export async function fetchComparison(): Promise<ComparisonRow[]> {
         sales: product.gmv,
         min_sku_original_price: product.min_sku_original_price,
         sampleValue,
-        signal: comparisonSignal(rank, creatorVideos, platformVideos, product.gmv),
+        signal: comparisonSignal(
+          rank,
+          creatorVideos,
+          platformVideos,
+          product.gmv,
+        ),
       };
     })
     .sort((a, b) => {
@@ -181,12 +293,18 @@ export async function fetchComparison(): Promise<ComparisonRow[]> {
 
 export async function fetchSampleValuation(): Promise<SampleValuation> {
   const products = await fetchRecentProducts(500);
-  const totalSamples = products.reduce((sum, product) => sum + product.sampleCount, 0);
+  const totalSamples = products.reduce(
+    (sum, product) => sum + product.sampleCount,
+    0,
+  );
   const totalRetailValue = products.reduce((sum, product) => {
-    const itemValue = product.estimatedRetailValue || product.sampleCount * product.min_sku_original_price;
+    const itemValue = product.estimatedRetailValue ||
+      product.sampleCount * product.min_sku_original_price;
     return sum + itemValue;
   }, 0);
-  const lastUpdated = products.map((product) => product.lastSeen).filter(Boolean).sort().at(-1) || null;
+  const lastUpdated =
+    products.map((product) => product.lastSeen).filter(Boolean).sort().at(-1) ||
+    null;
 
   return {
     totalSamples,
@@ -201,84 +319,280 @@ export async function fetchSampleValuation(): Promise<SampleValuation> {
   };
 }
 
-async function searchGraylog(config: GraylogConfig, query: string, limit: number): Promise<Record<string, unknown>[]> {
-  const url = new URL(`${config.url}/api/search/universal/relative`);
-  url.searchParams.set("query", query || "*");
-  url.searchParams.set("range", String(config.rangeSeconds));
-  url.searchParams.set("limit", String(limit));
-  url.searchParams.set("sort", "timestamp:desc");
-
-  if (config.streamId) {
-    url.searchParams.set("filter", `streams:${config.streamId}`);
-  }
+async function searchGraylog(
+  config: GraylogConfig,
+  query: string,
+  limit: number,
+): Promise<Record<string, unknown>[]> {
+  const url = new URL(`${config.url}/api/search/messages`);
+  const body = {
+    query: query || "*",
+    timerange: { type: "relative", range: config.rangeSeconds },
+    size: limit,
+    sort: "timestamp",
+    sort_order: "Descending",
+    fields: SEARCH_FIELDS,
+    ...(config.streamId ? { streams: [config.streamId] } : {}),
+  };
 
   const response = await fetch(url, {
+    method: "POST",
     headers: graylogHeaders(config),
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {
-    throw new Error(`Graylog search failed: ${response.status} ${await response.text()}`);
+    throw new Error(
+      `Graylog search failed: ${response.status} ${await response.text()}`,
+    );
   }
 
-  const body = await response.json();
-  const envelopes = Array.isArray(body.messages) ? body.messages as GraylogMessageEnvelope[] : [];
-  return envelopes.map((item) => item.message || {}).filter((item) => Object.keys(item).length > 0);
+  return recordsFromTabularResponse(await response.json());
 }
 
 function graylogHeaders(config: GraylogConfig): HeadersInit {
   const headers: Record<string, string> = {
     "accept": "application/json",
+    "content-type": "application/json",
     "x-requested-by": "thirsty-store-kiosk",
   };
 
   if (config.token) {
     headers.authorization = `Basic ${btoa(`${config.token}:token`)}`;
   } else if (config.username && config.password) {
-    headers.authorization = `Basic ${btoa(`${config.username}:${config.password}`)}`;
+    headers.authorization = `Basic ${
+      btoa(`${config.username}:${config.password}`)
+    }`;
   }
 
   return headers;
 }
 
-function normalizeProduct(source: Record<string, unknown>): ProductAnalysis | null {
+function recordsFromTabularResponse(
+  body: GraylogTabularResponse,
+): Record<string, unknown>[] {
+  const fields = Array.isArray(body.schema)
+    ? body.schema.map((entry) => entry.field || "").filter(Boolean)
+    : [];
+  const rows = Array.isArray(body.datarows) ? body.datarows : [];
+
+  return rows.map((row) => {
+    const record: Record<string, unknown> = {};
+
+    fields.forEach((field, index) => {
+      const value = normalizeGraylogCell(row[index]);
+      if (value !== undefined) record[field] = value;
+    });
+
+    return record;
+  });
+}
+
+function productRecordsFromMessages(
+  messages: Record<string, unknown>[],
+): Record<string, unknown>[] {
+  const records: Record<string, unknown>[] = [];
+
+  for (const message of messages) {
+    records.push(...productRecordsFromMessage(message));
+  }
+
+  return records;
+}
+
+function productRecordsFromMessage(
+  message: Record<string, unknown>,
+): Record<string, unknown>[] {
+  const records: Record<string, unknown>[] = [];
+
+  for (const field of ["rows_json", "core_data_json", "summary_json"]) {
+    const parsed = parseJsonValue(message[field]);
+    if (Array.isArray(parsed)) {
+      for (const item of parsed) {
+        if (isRecord(item)) records.push(withMessageContext(message, item));
+      }
+    } else if (isRecord(parsed)) {
+      records.push(...productRecordsFromParsedObject(message, parsed));
+    }
+  }
+
+  return records.length ? records : [message];
+}
+
+function productRecordsFromParsedObject(
+  message: Record<string, unknown>,
+  parsed: Record<string, unknown>,
+): Record<string, unknown>[] {
+  const rows = first(parsed, ["rows", "products", "data", "items"]);
+
+  if (Array.isArray(rows)) {
+    return rows
+      .filter(isRecord)
+      .map((row) => withMessageContext(message, row));
+  }
+
+  return [withMessageContext(message, parsed)];
+}
+
+function withMessageContext(
+  message: Record<string, unknown>,
+  row: Record<string, unknown>,
+): Record<string, unknown> {
+  return {
+    timestamp: message.timestamp,
+    source: message.source,
+    creator: message.creator,
+    scrapedAt: message.scrapedAt,
+    ...row,
+  };
+}
+
+function normalizeProduct(
+  source: Record<string, unknown>,
+): ProductAnalysis | null {
   const productId = stringFrom(first(source, PRODUCT_ID_FIELDS));
   if (!productId) return null;
 
   const minSkuOriginalPrice = numberFrom(first(source, MIN_PRICE_FIELDS), 0);
   const sampleCount = numberFrom(first(source, SAMPLE_COUNT_FIELDS), 1);
   const estimatedRetailValue = numberFrom(
-    first(source, ["estimated_retail_value", "estimatedRetailValue", "sample_value", "sampleValue"]),
+    first(source, [
+      "estimated_retail_value",
+      "estimatedRetailValue",
+      "sample_value",
+      "sampleValue",
+    ]),
     sampleCount * minSkuOriginalPrice,
   );
 
   return {
     productId,
-    name: stringFrom(first(source, PRODUCT_NAME_FIELDS)) || `Product ${productId}`,
-    priceRange: stringFrom(first(source, ["priceRange", "price_range", "sku_price_range"])) ||
+    name: stringFrom(first(source, PRODUCT_NAME_FIELDS)) ||
+      `Product ${productId}`,
+    priceRange: stringFrom(
+      first(source, ["priceRange", "price_range", "sku_price_range"]),
+    ) ||
       formatPriceRange(source),
     min_sku_original_price: minSkuOriginalPrice,
-    category: stringFrom(first(source, ["category", "product_category", "category_name"])) || "Uncategorized",
-    categoryRank: numberOrNull(first(source, ["category_rank", "categoryRank", "rank"])),
-    seller: stringFrom(first(source, ["seller", "seller_name", "shop_name", "shopName"])) || "Unknown seller",
-    creators: numberFrom(first(source, ["creators", "creator_count", "creatorCount"]), 0),
-    liveStreams: numberFrom(first(source, ["liveStreams", "live_streams", "live_count", "liveCount"]), 0),
-    videos: numberFrom(first(source, ["videos", "video_count", "videoCount", "platform_videos"]), 0),
-    gmv: numberFrom(first(source, ["gmv", "sales", "revenue"]), 0),
-    customers: numberFrom(first(source, ["customers", "customer_count", "customerCount"]), 0),
-    quantity: numberFrom(first(source, ["quantity", "quantity_sold", "items_sold", "units_sold"]), 0),
-    skuOrders: numberFrom(first(source, ["skuOrders", "sku_orders", "orders", "order_count"]), 0),
-    refunds: numberFrom(first(source, ["refunds", "refund_amount", "refundAmount"]), 0),
-    unitsRefunded: numberFrom(first(source, ["unitsRefunded", "units_refunded", "refund_units"]), 0),
+    category: stringFrom(
+      first(source, ["category", "product_category", "category_name"]),
+    ) || "Uncategorized",
+    categoryRank: numberOrNull(
+      first(source, ["category_rank", "categoryRank", "rank", "Rank"]),
+    ),
+    seller: stringFrom(
+      first(source, ["seller", "seller_name", "shop_name", "shopName"]),
+    ) || "Unknown seller",
+    creators: numberFrom(
+      first(source, [
+        "creators",
+        "creator_count",
+        "creatorCount",
+        "creators_count",
+      ]),
+      0,
+    ),
+    liveStreams: numberFrom(
+      first(source, [
+        "liveStreams",
+        "live_streams",
+        "live_count",
+        "liveCount",
+        "recent_livestreams_count",
+      ]),
+      0,
+    ),
+    videos: numberFrom(
+      first(source, [
+        "videos",
+        "video_count",
+        "videoCount",
+        "platform_videos",
+        "videos_count",
+      ]),
+      0,
+    ),
+    gmv: numberFrom(
+      first(source, [
+        "GMV",
+        "gmv",
+        "sales",
+        "revenue",
+        "gmv_direct",
+        "gmv_affiliate",
+      ]),
+      0,
+    ),
+    customers: numberFrom(
+      first(source, ["customers", "customer_count", "customerCount"]),
+      0,
+    ),
+    quantity: numberFrom(
+      first(source, [
+        "Items sold",
+        "quantity",
+        "quantity_sold",
+        "items_sold",
+        "units_sold",
+      ]),
+      0,
+    ),
+    skuOrders: numberFrom(
+      first(source, [
+        "Items sold",
+        "skuOrders",
+        "sku_orders",
+        "orders",
+        "order_count",
+      ]),
+      0,
+    ),
+    refunds: numberFrom(
+      first(source, ["refunds", "refund_amount", "refundAmount"]),
+      0,
+    ),
+    unitsRefunded: numberFrom(
+      first(source, ["unitsRefunded", "units_refunded", "refund_units"]),
+      0,
+    ),
     sampleCount,
     estimatedRetailValue,
-    lastSeen: stringFrom(first(source, ["timestamp", "event_time", "created_at", "updated_at"])) || null,
+    lastSeen: stringFrom(
+      first(source, [
+        "scrapedAt",
+        "timestamp",
+        "event_time",
+        "created_at",
+        "updated_at",
+      ]),
+    ) || null,
   };
 }
 
-function mergeProduct(current: ProductAnalysis, incoming: ProductAnalysis): ProductAnalysis {
+function mergeProduct(
+  current: ProductAnalysis,
+  incoming: ProductAnalysis,
+): ProductAnalysis {
+  const fallbackName = `Product ${incoming.productId}`;
+
   return {
     ...current,
     ...incoming,
+    name: incoming.name === fallbackName && current.name !== fallbackName
+      ? current.name
+      : incoming.name,
+    priceRange:
+      incoming.priceRange === "Unknown" && current.priceRange !== "Unknown"
+        ? current.priceRange
+        : incoming.priceRange,
+    category: incoming.category === "Uncategorized" &&
+        current.category !== "Uncategorized"
+      ? current.category
+      : incoming.category,
+    seller: incoming.seller === "Unknown seller" &&
+        current.seller !== "Unknown seller"
+      ? current.seller
+      : incoming.seller,
     creators: Math.max(current.creators, incoming.creators),
     liveStreams: Math.max(current.liveStreams, incoming.liveStreams),
     videos: Math.max(current.videos, incoming.videos),
@@ -289,9 +603,15 @@ function mergeProduct(current: ProductAnalysis, incoming: ProductAnalysis): Prod
     refunds: Math.max(current.refunds, incoming.refunds),
     unitsRefunded: Math.max(current.unitsRefunded, incoming.unitsRefunded),
     sampleCount: Math.max(current.sampleCount, incoming.sampleCount),
-    estimatedRetailValue: Math.max(current.estimatedRetailValue, incoming.estimatedRetailValue),
-    min_sku_original_price: incoming.min_sku_original_price || current.min_sku_original_price,
-    lastSeen: [current.lastSeen, incoming.lastSeen].filter(Boolean).sort().at(-1) || null,
+    estimatedRetailValue: Math.max(
+      current.estimatedRetailValue,
+      incoming.estimatedRetailValue,
+    ),
+    min_sku_original_price: incoming.min_sku_original_price ||
+      current.min_sku_original_price,
+    lastSeen:
+      [current.lastSeen, incoming.lastSeen].filter(Boolean).sort().at(-1) ||
+      null,
   };
 }
 
@@ -323,16 +643,45 @@ function stringFrom(value: unknown): string {
   return "";
 }
 
+function normalizeGraylogCell(value: unknown): unknown {
+  if (value === undefined || value === null || value === "-") return undefined;
+  return value;
+}
+
+function parseJsonValue(value: unknown): unknown {
+  if (typeof value !== "string" || !value.trim() || value === "-") {
+    return undefined;
+  }
+
+  try {
+    return JSON.parse(value);
+  } catch {
+    return undefined;
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
 function formatPriceRange(source: Record<string, unknown>): string {
   const min = numberFrom(first(source, MIN_PRICE_FIELDS), 0);
-  const max = numberFrom(first(source, ["max_sku_original_price", "maxSkuOriginalPrice", "max_original_price"]), min);
+  const max = numberFrom(
+    first(source, [
+      "max_sku_original_price",
+      "maxSkuOriginalPrice",
+      "max_original_price",
+    ]),
+    min,
+  );
   if (!min && !max) return "Unknown";
   if (min === max) return currency(min);
   return `${currency(min)}-${currency(max)}`;
 }
 
 function currency(value: number): string {
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" })
+    .format(value);
 }
 
 function comparisonSignal(
@@ -341,14 +690,13 @@ function comparisonSignal(
   platformVideos: number,
   gmv: number,
 ): string {
-  if ((rank !== null && rank <= 10 || gmv >= 1000) && creatorVideos <= 2 && platformVideos >= 50) {
+  if (
+    (rank !== null && rank <= 10 || gmv >= 1000) && creatorVideos <= 2 &&
+    platformVideos >= 50
+  ) {
     return "Under-posted";
   }
   if (creatorVideos >= 8 && gmv < 1000) return "Over-posted";
   if (rank !== null && rank <= 25) return "Priority";
   return "Watch";
-}
-
-function escapeGraylogValue(value: string): string {
-  return `"${value.replaceAll("\\", "\\\\").replaceAll("\"", "\\\"")}"`;
 }
