@@ -9,6 +9,7 @@
   "deploy": {
     "org": "easierbycode",
     "app": "thirsty-store-kiosk",
+    "framework": "",
     "build": "deno task build",
     "runtime": {
       "type": "dynamic",
