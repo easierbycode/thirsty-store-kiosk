@@ -4,6 +4,7 @@
     "build": "deno check main.ts"
   },
   "deploy": {
+    "build": "deno task build",
     "runtime": {
       "type": "dynamic",
       "entrypoint": "./main.ts"

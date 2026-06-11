@@ -1,6 +1,6 @@
 {
   "tasks": {
-    "build": "deno run --allow-run --allow-read --allow-write=_fresh,apps/web/_fresh scripts/build_deploy.ts",
+    "build": "deno check apps/web/main.ts",
     "build:web": "deno run -A --watch --env-file=.env apps/web/main.ts",
     "build:mac": "deno compile --allow-all --env-file=.env --include apps/web/public --output dist/thirsty-mac apps/admin/src/main.ts",
     "build:windows": "deno compile --allow-all --env-file=.env --include apps/web/public --output dist/thirsty-win.exe apps/admin/src/main.ts",
@@ -8,6 +8,11 @@
   },
   "deploy": {
     "org": "easierbycode",
-    "app": "thirsty-store-kiosk"
+    "app": "thirsty-store-kiosk",
+    "build": "deno task build",
+    "runtime": {
+      "type": "dynamic",
+      "entrypoint": "apps/web/main.ts"
+    }
   }
 }
