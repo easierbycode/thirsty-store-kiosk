@@ -1,0 +1,12 @@
+{
+  "lock": false,
+  "tasks": {
+    "build": "deno check main.ts"
+  },
+  "deploy": {
+    "runtime": {
+      "type": "dynamic",
+      "entrypoint": "./main.ts"
+    }
+  }
+}
