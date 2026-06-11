@@ -28,7 +28,7 @@ if (import.meta.main) {
   startWebApp();
 }
 
-async function handleRequest(req: Request): Promise<Response> {
+export async function handleRequest(req: Request): Promise<Response> {
   const url = new URL(req.url);
 
   try {

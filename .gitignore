@@ -1,3 +1,5 @@
 .DS_Store
 .env
 .thirsty/
+_fresh/
+apps/web/_fresh/
