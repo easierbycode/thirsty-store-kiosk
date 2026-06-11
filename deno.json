@@ -7,9 +7,6 @@
     "build:ps2": "echo ps2 build stub"
   },
   "deploy": {
-    "org": "easierbycode",
-    "app": "thirsty-store-kiosk",
-    "framework": "",
     "build": "deno task build",
     "runtime": {
       "type": "dynamic",
