@@ -9,10 +9,10 @@
   "deploy": {
     "org": "easierbycode",
     "app": "thirsty-store-kiosk",
+    "framework": "",
     "build": "deno task build",
     "runtime": {
-      "mode": "dynamic",
-      "entrypoint": "apps/web/main.ts"
+      "entrypoint": "./apps/web/main.ts"
     }
   }
 }

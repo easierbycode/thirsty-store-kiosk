@@ -2,12 +2,5 @@
   "lock": false,
   "tasks": {
     "build": "deno check main.ts"
-  },
-  "deploy": {
-    "build": "deno task build",
-    "runtime": {
-      "mode": "dynamic",
-      "entrypoint": "./main.ts"
-    }
   }
 }
