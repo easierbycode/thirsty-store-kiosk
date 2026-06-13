@@ -31,6 +31,12 @@ const ICON_GRADIENTS = `
       <linearGradient id="g-val" x1="0" y1="0" x2="1" y2="1">
         <stop offset="0" stop-color="#f7c64f"/><stop offset="1" stop-color="#e89b16"/>
       </linearGradient>
+      <linearGradient id="g-box" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#4fc3a1"/><stop offset="1" stop-color="#239b7e"/>
+      </linearGradient>
+      <linearGradient id="g-kiosk" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#7aa6ff"/><stop offset="1" stop-color="#4364cf"/>
+      </linearGradient>
     </defs>
   </svg>`;
 
@@ -61,6 +67,30 @@ const ICONS = {
       <circle cx="39.2" cy="24.8" r="3.4" fill="#e89b16"/>
       <text x="29.5" y="40" font-family="Space Grotesk, sans-serif" font-size="17" font-weight="700" fill="#c77f0c" text-anchor="middle">$</text>
     </svg>`,
+
+  boxes: `
+    <svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <rect x="6" y="6" width="52" height="52" rx="14" fill="url(#g-box)"/>
+      <rect x="6" y="6" width="52" height="26" rx="14" fill="#fff" opacity=".10"/>
+      <rect x="24" y="15.5" width="16" height="15" rx="2.5" fill="#fff"/>
+      <rect x="30.5" y="15.5" width="3" height="15" fill="#16715b" opacity=".5"/>
+      <rect x="14.5" y="32.5" width="16" height="15" rx="2.5" fill="#fff" opacity=".95"/>
+      <rect x="21" y="32.5" width="3" height="15" fill="#16715b" opacity=".45"/>
+      <rect x="33.5" y="32.5" width="16" height="15" rx="2.5" fill="#fff" opacity=".95"/>
+      <rect x="40" y="32.5" width="3" height="15" fill="#16715b" opacity=".45"/>
+    </svg>`,
+
+  kiosk: `
+    <svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <rect x="6" y="6" width="52" height="52" rx="14" fill="url(#g-kiosk)"/>
+      <rect x="6" y="6" width="52" height="26" rx="14" fill="#fff" opacity=".12"/>
+      <rect x="15" y="16" width="34" height="23" rx="3" fill="#fff"/>
+      <rect x="19" y="20" width="26" height="4" rx="2" fill="#3f6fd0" opacity=".55"/>
+      <rect x="19" y="27" width="17" height="3" rx="1.5" fill="#3f6fd0" opacity=".35"/>
+      <rect x="19" y="32" width="22" height="3" rx="1.5" fill="#3f6fd0" opacity=".35"/>
+      <rect x="29" y="39" width="6" height="5" fill="#fff" opacity=".9"/>
+      <rect x="22" y="44" width="20" height="4" rx="2" fill="#fff"/>
+    </svg>`,
 };
 
 /* ------------------------------------------------------------ app model -- */
@@ -75,11 +105,31 @@ const FOLDERS = [
     icon: ICONS.folder,
     items: [
       {
-        id: "inventory",
-        name: "Inventory Management",
+        id: "product-analysis",
+        name: "Product Analysis",
         icon: ICONS.inventory,
         url: "/inventory",
         allow: "fullscreen",
+        width: 1180,
+        height: 780,
+      },
+      {
+        id: "inventory",
+        name: "Inventory",
+        icon: ICONS.boxes,
+        url: "https://admin.thirsty.store",
+        allow: "fullscreen",
+        external: true,
+        width: 1180,
+        height: 780,
+      },
+      {
+        id: "kiosk",
+        name: "Kiosk",
+        icon: ICONS.kiosk,
+        url: "https://thirsty.store",
+        allow: "fullscreen",
+        external: true,
         width: 1180,
         height: 780,
       },
