@@ -41,6 +41,7 @@ export type UnpricedSample = {
   fetchedAt: string | null;
   updatedAt: string | null;
   priced: boolean;
+  image: string | null;
   persistedTo?: string[];
 };
 
@@ -75,6 +76,7 @@ type SampleProductInput = SampleUpdateInput & {
   seller?: unknown;
   sourceUrl?: unknown;
   lastSeen?: unknown;
+  image?: unknown;
 };
 
 type ScrapeCreatorsPrice = {
@@ -82,6 +84,8 @@ type ScrapeCreatorsPrice = {
   sourceUrl: string;
   title?: string;
   seller?: string;
+  image?: string;
+  product?: Record<string, unknown>;
 };
 
 const DEFAULT_STORE_PATH = ".thirsty/sample-prices.json";
@@ -221,6 +225,7 @@ export async function upsertSampleProduct(
     "Samples";
   const lastSeen = optionalString(input.lastSeen) ??
     existingProduct?.lastSeen ?? now;
+  const image = optionalString(input.image) ?? existingProduct?.image ?? null;
 
   store.products[productId] = {
     productId,
@@ -242,6 +247,7 @@ export async function upsertSampleProduct(
     sampleCount,
     estimatedRetailValue: price * sampleCount,
     lastSeen,
+    image,
   };
 
   if (price > 0) {
@@ -272,6 +278,7 @@ export async function upsertSampleProduct(
       sample_count: sampleCount,
       category,
       seller,
+      image,
       estimated_retail_value: price * sampleCount,
       scrapedAt: optionalString(input.fetchedAt) ?? now,
     }),
@@ -305,10 +312,47 @@ export async function fetchPriceForSample(
     throw new Error("ScrapeCreators returned no usable price");
   }
 
-  // Look up only -- do not persist. The client previews this proposed price
-  // and must confirm before updateSamplePrice() commits it to the store.
-  const existing = store.edits[productId];
   const now = new Date().toISOString();
+
+  // The lookup response is the only place the entire product (title, seller,
+  // images, skus) ever appears, so persist all of it right away -- otherwise
+  // the data is gone the moment the user dismisses the price confirm. The
+  // price itself still goes through the preview/confirm flow below; the saved
+  // product row keeps its original price so the sample stays in the queue.
+  const enriched: ProductAnalysis = {
+    ...product,
+    name: lookup.title || product.name,
+    seller: lookup.seller || product.seller,
+    image: lookup.image ?? product.image ?? null,
+    lastSeen: now,
+  };
+  store.products[productId] = enriched;
+  let persistedTo: string[] = [];
+  try {
+    persistedTo = await persistStore(store, {
+      shortMessage: `thirsty product lookup: ${enriched.name}`,
+      fields: {
+        sample_source: "scrapecreators",
+        product_json: scrapeCreatorsProductJson(lookup.product),
+        core_data_json: JSON.stringify({
+          productId,
+          name: enriched.name,
+          min_sku_original_price: product.min_sku_original_price,
+          sample_count: enriched.sampleCount,
+          category: enriched.category,
+          seller: enriched.seller,
+          image: enriched.image,
+          estimated_retail_value: enriched.estimatedRetailValue,
+          scrapedAt: now,
+        }),
+      },
+    });
+  } catch {
+    // A failed product save must not eat the looked-up price -- the client
+    // can still preview it and confirm, which persists via updateSamplePrice.
+  }
+
+  const existing = store.edits[productId];
   const proposed: SamplePriceEdit = {
     productId,
     price: lookup.price,
@@ -322,7 +366,35 @@ export async function fetchPriceForSample(
     updatedAt: now,
   };
 
-  return sampleFromProduct(product, proposed);
+  return { ...sampleFromProduct(enriched, proposed), persistedTo };
+}
+
+// Catalog endpoint used by sibling apps (sample tracker, thirsty.store). The
+// local/recovered store keeps serving products even when Graylog is offline.
+export async function listProducts(limit = 100): Promise<ProductAnalysis[]> {
+  const store = await loadStore();
+  let recent: ProductAnalysis[] = [];
+  try {
+    recent = await fetchRecentProducts(limit);
+  } catch {
+    // Graylog being unreachable must not take the catalog down -- the store
+    // still has every product saved by lookups and intake.
+  }
+
+  const products = new Map<string, ProductAnalysis>();
+  for (const product of recent) {
+    products.set(product.productId, product);
+  }
+  for (const product of Object.values(store.products)) {
+    if (!products.has(product.productId)) {
+      products.set(product.productId, product);
+    }
+  }
+
+  return [...products.values()]
+    .map((product) => productWithEdit(product, store.edits[product.productId]))
+    .sort((a, b) => (b.lastSeen || "").localeCompare(a.lastSeen || ""))
+    .slice(0, limit);
 }
 
 export async function fetchProductWithEdits(
@@ -336,7 +408,13 @@ export async function fetchProductWithEdits(
   // The product-detail view reads raw Graylog data, so a price recovered via
   // Save or Fetch API (stored as an edit) would otherwise never show here even
   // though the sample queue reflects it. Apply the edit so both views agree.
-  const edit = store.edits[productId];
+  return productWithEdit(product, store.edits[productId]);
+}
+
+function productWithEdit(
+  product: ProductAnalysis,
+  edit?: SamplePriceEdit,
+): ProductAnalysis {
   if (!edit) return product;
 
   const price = edit.price ?? product.min_sku_original_price;
@@ -447,6 +525,7 @@ function sampleFromProduct(
     fetchedAt: edit?.fetchedAt || null,
     updatedAt: edit?.updatedAt || null,
     priced: price > 0,
+    image: product.image ?? null,
   };
 }
 
@@ -513,6 +592,8 @@ async function fetchScrapeCreatorsPriceByUrl(
     seller: stringAt(body, ["product_info", "seller", "name"]) ||
       stringAt(body, ["seller", "name"]) ||
       stringAt(body, ["shop_info", "shop_name"]),
+    image: imageFromScrapeCreators(body),
+    product: isRecord(body) ? body : undefined,
   };
 }
 
@@ -555,6 +636,8 @@ async function fetchScrapeCreatorsPriceByName(
     sourceUrl: scrapeCreatorsSearchProductUrl(result) || url.href,
     title: scrapeCreatorsSearchProductTitle(result),
     seller: scrapeCreatorsSearchProductSeller(result),
+    image: imageFromScrapeCreators(result),
+    product: result,
   };
 }
 
@@ -710,6 +793,90 @@ function scrapeCreatorsSearchProductUrl(product: unknown): string | undefined {
   return stringAt(product, ["url"]) ||
     stringAt(product, ["seo_url", "canonical_url"]) ||
     stringAt(product, ["canonical_url"]);
+}
+
+// Works for both response shapes: the product endpoint nests image objects
+// (url_list/thumb_url_list) under product_base, while search results carry
+// flat cover/img fields.
+function imageFromScrapeCreators(body: unknown): string | undefined {
+  const candidates = [
+    valueAt(body, ["product_info", "product_base", "images"]),
+    valueAt(body, ["product_base", "images"]),
+    valueAt(body, ["product_info", "images"]),
+    valueAt(body, ["images"]),
+    valueAt(body, ["cover"]),
+    valueAt(body, ["cover_url"]),
+    valueAt(body, ["img"]),
+    valueAt(body, ["image"]),
+    valueAt(body, ["thumbnail"]),
+  ];
+
+  for (const candidate of candidates) {
+    const url = firstImageUrl(candidate);
+    if (url) return url;
+  }
+
+  return undefined;
+}
+
+function firstImageUrl(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    return /^https?:\/\//.test(value) ? value : undefined;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const url = firstImageUrl(item);
+      if (url) return url;
+    }
+    return undefined;
+  }
+  if (isRecord(value)) {
+    return firstImageUrl(value.url_list) ??
+      firstImageUrl(value.thumb_url_list) ??
+      firstImageUrl(value.url) ??
+      firstImageUrl(value.uri);
+  }
+  return undefined;
+}
+
+// Graylog indexes each GELF field, and oversized values can fail to index --
+// ship the entire payload when it fits, otherwise keep the sections that
+// matter (identity, pricing, images, seller) so the save never fails.
+function scrapeCreatorsProductJson(
+  product: Record<string, unknown> | undefined,
+): string | undefined {
+  if (!product) return undefined;
+
+  const full = JSON.stringify(product);
+  if (full.length <= 30000) return full;
+
+  const compact: Record<string, unknown> = {};
+  for (
+    const key of [
+      "product_base",
+      "product_info",
+      "skus",
+      "seller",
+      "seller_info",
+      "shop_info",
+      "seo_url",
+      "title",
+      "name",
+      "price",
+      "product_price_info",
+      "cover",
+      "img",
+      "image",
+      "images",
+      "url",
+    ]
+  ) {
+    if (product[key] !== undefined) compact[key] = product[key];
+  }
+  const compactJson = JSON.stringify(compact);
+  if (compactJson.length <= 30000) return compactJson;
+
+  return JSON.stringify({ truncated: true, keys: Object.keys(product) });
 }
 
 async function readStore(): Promise<SampleStore> {

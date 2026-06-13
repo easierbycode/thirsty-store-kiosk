@@ -28,6 +28,7 @@ export type ProductAnalysis = {
   sampleCount: number;
   estimatedRetailValue: number;
   lastSeen: string | null;
+  image?: string | null;
 };
 
 export type ComparisonRow = {
@@ -658,6 +659,18 @@ function normalizeProduct(
         "updated_at",
       ]),
     ) || null,
+    image: stringFrom(
+      first(source, [
+        "image",
+        "image_url",
+        "imageUrl",
+        "picture_url",
+        "pictureUrl",
+        "cover",
+        "thumbnail",
+        "img",
+      ]),
+    ) || null,
   };
 }
 
@@ -704,6 +717,7 @@ function mergeProduct(
     lastSeen:
       [current.lastSeen, incoming.lastSeen].filter(Boolean).sort().at(-1) ||
       null,
+    image: incoming.image || current.image || null,
   };
 }
 
