@@ -1,0 +1,618 @@
+/* Thirsty OS — desktop shell, folders, icons, and draggable windows.
+   Shares the "Lifepreneur wealth dashboard" palette with the inventory app
+   (Space Grotesk + Figtree, money-orange + gold on near-black). */
+
+:root {
+  color-scheme: dark;
+
+  --accent: #e8650a;
+  --accent-2: #f5832e;
+  --gold: #f5b73c;
+  --gold-soft: rgba(245, 183, 60, 0.14);
+
+  --bg: #0b0d11;
+  --surface: #14171e;
+  --surface-2: #1b1f28;
+  --surface-3: #232834;
+  --line: rgba(255, 255, 255, 0.09);
+  --line-strong: rgba(255, 255, 255, 0.16);
+  --text: #f5f7f9;
+  --text-dim: #99a2af;
+  --text-faint: #6a727f;
+
+  --accent-soft: color-mix(in oklab, var(--accent) 16%, transparent);
+  --accent-line: color-mix(in oklab, var(--accent) 38%, transparent);
+
+  --menubar-h: 30px;
+  --dock-h: 78px;
+
+  --font-display: 'Space Grotesk', system-ui, sans-serif;
+  --font-body: 'Figtree', system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--font-body);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow: hidden;
+  /* Layered wallpaper: warm glow top-left, cool depth bottom-right. */
+  background:
+    radial-gradient(120% 80% at 12% -10%, rgba(232, 101, 10, 0.20), transparent 55%),
+    radial-gradient(100% 90% at 100% 110%, rgba(245, 183, 60, 0.12), transparent 50%),
+    radial-gradient(80% 70% at 90% 0%, rgba(70, 110, 180, 0.10), transparent 60%),
+    linear-gradient(160deg, #0c0f15 0%, #090b0f 60%, #07080b 100%);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.tnum {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+button {
+  font: inherit;
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+/* ---------- menu bar ---------- */
+
+.menubar {
+  position: fixed;
+  inset: 0 0 auto 0;
+  height: var(--menubar-h);
+  z-index: 9000;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 14px;
+  font-size: 13px;
+  background: color-mix(in oklab, var(--bg) 62%, transparent);
+  backdrop-filter: blur(18px) saturate(1.4);
+  -webkit-backdrop-filter: blur(18px) saturate(1.4);
+  border-bottom: 1px solid var(--line);
+}
+
+.menubar-left,
+.menubar-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.brand {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.brand-mark {
+  color: var(--accent);
+  font-size: 11px;
+}
+
+.active-app {
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
+.mb-status {
+  color: var(--gold);
+  font-size: 12px;
+  font-weight: 600;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+.clock {
+  color: var(--text-dim);
+  font-weight: 600;
+  font-size: 12.5px;
+}
+
+/* ---------- desktop ---------- */
+
+.desktop {
+  position: fixed;
+  inset: var(--menubar-h) 0 0 0;
+  overflow: hidden;
+}
+
+.desktop-icons {
+  position: absolute;
+  inset: 18px auto auto 18px;
+  display: flex;
+  flex-direction: column;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 6px 10px;
+  max-height: calc(100% - 36px - var(--dock-h));
+}
+
+/* ---------- icons (desktop + inside folders) ---------- */
+
+.icon {
+  width: 96px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  padding: 10px 6px 8px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  text-align: center;
+  color: var(--text);
+  transition: background 0.12s, border-color 0.12s, transform 0.08s;
+}
+
+.icon:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.icon:focus-visible {
+  outline: none;
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+}
+
+.icon:active {
+  transform: scale(0.96);
+}
+
+.icon-glyph {
+  width: 52px;
+  height: 52px;
+  display: grid;
+  place-items: center;
+  filter: drop-shadow(0 6px 10px rgba(0, 0, 0, 0.45));
+}
+
+.icon-glyph svg {
+  width: 100%;
+  height: 100%;
+}
+
+.icon-label {
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: 0.005em;
+  max-width: 92px;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.7);
+  word-break: break-word;
+}
+
+/* ---------- windows ---------- */
+
+.window {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  /* Never wider/taller than the viewport, so a portrait kiosk can't push the
+     resize handle or controls off-screen. */
+  min-width: min(340px, calc(100vw - 16px));
+  min-height: min(220px, calc(100vh - var(--menubar-h) - 16px));
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: 14px;
+  box-shadow:
+    0 30px 70px -20px rgba(0, 0, 0, 0.75),
+    0 8px 24px -12px rgba(0, 0, 0, 0.6),
+    0 0 0 0.5px rgba(255, 255, 255, 0.04) inset;
+  overflow: hidden;
+  opacity: 0;
+  transform: scale(0.94);
+  transition: opacity 0.16s ease, transform 0.16s ease;
+}
+
+.window.open {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.window.minimizing {
+  opacity: 0;
+  transform: scale(0.4) translateY(40vh);
+  pointer-events: none;
+}
+
+.window.active {
+  border-color: var(--accent-line);
+  box-shadow:
+    0 36px 90px -20px rgba(0, 0, 0, 0.82),
+    0 10px 28px -12px rgba(0, 0, 0, 0.65),
+    0 0 0 1px var(--accent-soft);
+}
+
+.window.maximized {
+  border-radius: 0;
+}
+
+/* titlebar */
+
+.titlebar {
+  flex-shrink: 0;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  background: linear-gradient(180deg, var(--surface-2), var(--surface));
+  border-bottom: 1px solid var(--line);
+  cursor: grab;
+  touch-action: none;
+}
+
+.titlebar.grabbing {
+  cursor: grabbing;
+}
+
+.traffic {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.light {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 0;
+  position: relative;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.35) inset;
+}
+
+.light.close { background: #ff5f57; }
+.light.min { background: #febc2e; }
+.light.zoom { background: #28c840; }
+
+.light .glyph {
+  font-size: 9px;
+  line-height: 1;
+  color: rgba(0, 0, 0, 0.55);
+  opacity: 0;
+  font-weight: 900;
+  transition: opacity 0.1s;
+}
+
+.traffic:hover .light .glyph {
+  opacity: 1;
+}
+
+/* Touch/kiosk has no hover — always show the ×/−/+ so users aren't relying on
+   color alone (WCAG 1.4.1). Keyboard users see them on focus. */
+@media (hover: none), (pointer: coarse) {
+  .light .glyph {
+    opacity: 1;
+  }
+}
+
+.light:focus-visible .glyph,
+.traffic:focus-within .glyph {
+  opacity: 1;
+}
+
+/* Coarse pointers (touch kiosk): enlarge the controls past the 24px AA target
+   minimum and space them so close/min/zoom can't be mis-tapped. */
+@media (pointer: coarse) {
+  .traffic {
+    gap: 14px;
+  }
+
+  .light {
+    width: 28px;
+    height: 28px;
+  }
+
+  .light .glyph {
+    opacity: 1;
+    font-size: 16px;
+  }
+}
+
+/* Visible keyboard focus on the window + dock controls. */
+.light:focus-visible,
+.dock-item:focus-visible {
+  outline: 2px solid var(--accent-2);
+  outline-offset: 2px;
+}
+
+.titlebar-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-display);
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0 auto 0 4px;
+  pointer-events: none;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.titlebar-title .ttl-glyph {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.titlebar-title .ttl-glyph svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* a spacer that balances the traffic lights so the title centers */
+.titlebar-spacer {
+  width: 52px;
+  flex-shrink: 0;
+}
+
+/* window body */
+
+.window-body {
+  flex: 1;
+  position: relative;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.window-body iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
+  background: var(--bg);
+}
+
+.window-loader {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  gap: 12px;
+  color: var(--text-dim);
+  font-size: 13px;
+  background: var(--bg);
+  z-index: 2;
+  transition: opacity 0.3s;
+}
+
+.window-loader.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.spinner {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 3px solid var(--line-strong);
+  border-top-color: var(--accent);
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* folder window body */
+
+.folder-grid {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  padding: 18px;
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 8px;
+  background:
+    radial-gradient(120% 60% at 0% 0%, rgba(232, 101, 10, 0.06), transparent 60%),
+    var(--surface);
+}
+
+.folder-empty {
+  margin: auto;
+  color: var(--text-faint);
+  font-size: 13px;
+}
+
+/* resize handle */
+
+.resize-handle {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  right: 0;
+  bottom: 0;
+  cursor: nwse-resize;
+  z-index: 5;
+  touch-action: none;
+}
+
+.resize-handle::after {
+  content: "";
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid var(--line-strong);
+  border-bottom: 2px solid var(--line-strong);
+  border-bottom-right-radius: 3px;
+}
+
+/* while dragging/resizing any window, kill iframe pointer capture so the
+   gesture doesn't get swallowed by the embedded document */
+body.wm-busy iframe {
+  pointer-events: none;
+}
+
+body.wm-busy {
+  cursor: grabbing;
+}
+
+/* ---------- dock ---------- */
+
+.dock {
+  position: fixed;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  z-index: 8000;
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  justify-content: center;
+  max-width: calc(100vw - 24px);
+  gap: 8px;
+  padding: 8px 12px;
+  min-height: 58px;
+  border-radius: 20px;
+  background: color-mix(in oklab, var(--surface-2) 78%, transparent);
+  border: 1px solid var(--line);
+  backdrop-filter: blur(20px) saturate(1.4);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  box-shadow: 0 18px 40px -16px rgba(0, 0, 0, 0.7);
+  transition: opacity 0.2s;
+}
+
+.dock:empty {
+  opacity: 0;
+}
+
+.dock-item {
+  width: 44px;
+  height: 44px;
+  border-radius: 11px;
+  background: var(--surface-3);
+  border: 1px solid var(--line);
+  display: grid;
+  place-items: center;
+  position: relative;
+  transition: transform 0.12s ease, background 0.12s;
+}
+
+.dock-item:hover {
+  transform: translateY(-6px) scale(1.06);
+  background: var(--surface);
+}
+
+.dock-item svg {
+  width: 26px;
+  height: 26px;
+}
+
+.dock-item .dock-tip {
+  position: absolute;
+  bottom: calc(100% + 9px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 9px;
+  border-radius: 7px;
+  background: var(--surface-3);
+  border: 1px solid var(--line-strong);
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--text);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s;
+}
+
+.dock-item:hover .dock-tip {
+  opacity: 1;
+}
+
+.dock-item .dock-dot {
+  position: absolute;
+  bottom: -5px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: 0;
+}
+
+.dock-item.running .dock-dot {
+  opacity: 1;
+}
+
+/* Frontmost app — a ring that survives the hover background swap. */
+.dock-item.focused {
+  border-color: var(--accent-line);
+  box-shadow: 0 0 0 1.5px var(--accent-line);
+}
+
+.dock-item.focused .dock-dot {
+  background: var(--accent-2);
+}
+
+.dock-item.minimized {
+  filter: saturate(0.7) brightness(0.85);
+}
+
+/* ---------- responsive ---------- */
+
+@media (max-width: 720px) {
+  .icon {
+    width: 84px;
+  }
+  .desktop-icons {
+    inset: 12px auto auto 12px;
+  }
+  .dock-item {
+    width: 40px;
+    height: 40px;
+  }
+}
+
+/* Honor reduced-motion: drop the scale/translate transitions (the minimize is
+   a large scale+40vh move) and the dock hover lift; keep the spinner turning
+   slowly so "loading" still reads. Iframe content is out of scope here. */
+@media (prefers-reduced-motion: reduce) {
+  .window {
+    transition: opacity 0.16s ease;
+    transform: none;
+  }
+  .window.open,
+  .window.minimizing {
+    transform: none;
+  }
+  .icon,
+  .icon:active {
+    transform: none;
+  }
+  .dock-item,
+  .dock-item:hover {
+    transform: none;
+  }
+  .spinner {
+    animation-duration: 2.4s;
+  }
+}

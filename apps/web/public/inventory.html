@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Inventory Management — Thirsty OS</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=Figtree:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div>
+          <p class="eyebrow">Thirsty Control</p>
+          <h1>Product Analysis</h1>
+        </div>
+        <div class="command">
+          <div class="mode-toggle" role="tablist" aria-label="Search or intake">
+            <button id="mode-search" class="active" type="button">Search</button>
+            <button id="mode-intake" type="button">Intake</button>
+          </div>
+          <form id="global-search" class="search command-form">
+            <input
+              id="global-query"
+              name="query"
+              placeholder="Search name, product ID, or note"
+              autocomplete="off"
+            >
+            <button type="submit">Search</button>
+          </form>
+          <form id="sample-intake" class="intake command-form hidden">
+            <input name="barcode" placeholder="Barcode / QR" autocomplete="off">
+            <input name="productId" placeholder="Product ID" autocomplete="off">
+            <input name="location" placeholder="Shelf" autocomplete="off">
+            <button type="submit">Stage Intake</button>
+          </form>
+          <p id="intake-result" class="muted command-hint hidden">
+            Scan a sample to stage it against Graylog product analysis.
+          </p>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <section id="setup-warning" class="notice hidden"></section>
+
+      <section class="product-shell hidden" data-screen-label="Product details">
+        <div class="product-hero panel">
+          <div>
+            <p class="eyebrow">Product Details</p>
+            <h2 id="product-name">Waiting for Graylog data</h2>
+            <p id="product-meta" class="muted">
+              Configure Graylog, then load a TikTok product ID.
+            </p>
+          </div>
+          <div class="price-tile">
+            <span>Min SKU original price</span>
+            <strong id="min-price">$0.00</strong>
+          </div>
+        </div>
+
+        <nav class="tabs" aria-label="Product analysis tabs">
+          <button class="active" type="button">Performance</button>
+          <button type="button">Creator &amp; Content</button>
+          <button type="button">Audience</button>
+        </nav>
+
+        <section class="metrics-grid">
+          <article class="panel metric">
+            <span>GMV</span>
+            <strong id="gmv">$0.00</strong>
+          </article>
+          <article class="panel metric">
+            <span>Customers</span>
+            <strong id="customers">0</strong>
+          </article>
+          <article class="panel metric">
+            <span>Quantity sold</span>
+            <strong id="quantity">0</strong>
+          </article>
+          <article class="panel metric">
+            <span>SKU orders</span>
+            <strong id="sku-orders">0</strong>
+          </article>
+          <article class="panel metric">
+            <span>Refund amount</span>
+            <strong id="refunds">$0.00</strong>
+          </article>
+          <article class="panel metric">
+            <span>Units refunded</span>
+            <strong id="units-refunded">0</strong>
+          </article>
+          <article class="panel metric">
+            <span>Videos</span>
+            <strong id="videos">0</strong>
+          </article>
+          <article class="panel metric">
+            <span>LIVE streams</span>
+            <strong id="live-streams">0</strong>
+          </article>
+        </section>
+      </section>
+
+      <section class="panel" data-screen-label="Price recovery queue">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Unpriced Samples</p>
+            <h2>Price Recovery Queue</h2>
+          </div>
+          <span id="unpriced-summary" class="pill">Loading</span>
+        </div>
+        <div class="sample-toolbar">
+          <p id="unpriced-status" class="muted table-status">
+            Checking Graylog-backed sample rows.
+          </p>
+          <button id="unpriced-refresh" class="ghost" type="button">
+            Refresh
+          </button>
+        </div>
+        <div class="rowgrid scroll">
+          <div class="sample-row head">
+            <span>Product</span>
+            <span>Price</span>
+            <span>Samples</span>
+            <span>Value</span>
+            <span>Notes</span>
+            <span class="row-actions">Actions</span>
+          </div>
+          <div id="unpriced-rows" class="rowgrid"></div>
+        </div>
+      </section>
+
+      <section class="panel" data-screen-label="Comparison engine">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Brian's Comparison Engine</p>
+            <h2>What Should We Film Next?</h2>
+          </div>
+        </div>
+        <div class="rowgrid scroll">
+          <div class="cmp-row head">
+            <span>Product</span>
+            <span class="num">Rank</span>
+            <span class="num">Creator videos</span>
+            <span class="num">Platform videos</span>
+            <span class="num">Sales</span>
+            <span class="num">Sample value</span>
+            <span>Signal</span>
+          </div>
+          <div id="comparison-rows" class="rowgrid"></div>
+        </div>
+      </section>
+
+      <section class="panel" data-screen-label="Kiosk fleet">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Kiosk Fleet</p>
+            <h2>Heartbeat Monitor</h2>
+          </div>
+        </div>
+        <div id="kiosks" class="kiosk-grid"></div>
+      </section>
+    </main>
+
+    <script type="module" src="/ui.js"></script>
+  </body>
+</html>

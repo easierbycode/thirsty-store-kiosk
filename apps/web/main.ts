@@ -167,8 +167,21 @@ async function routeRequest(req: Request, url: URL): Promise<Response> {
       return Response.json(await fetchSampleValuationWithEdits());
     }
 
+    // Thirsty OS desktop shell (root) and the apps it launches in windows.
     if (url.pathname === "/") {
       return staticFile("index.html", "text/html");
+    }
+
+    if (url.pathname === "/inventory" || url.pathname === "/inventory.html") {
+      return staticFile("inventory.html", "text/html");
+    }
+
+    if (url.pathname === "/os.js") {
+      return staticFile("os.js", "text/javascript");
+    }
+
+    if (url.pathname === "/os.css") {
+      return staticFile("os.css", "text/css");
     }
 
     if (url.pathname === "/ui.js") {
