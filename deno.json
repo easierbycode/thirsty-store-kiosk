@@ -1,4 +1,7 @@
 {
+  "imports": {
+    "webview": "jsr:@webview/webview@0.8.1"
+  },
   "tasks": {
     "build": "deno check apps/web/main.ts",
     "build:web": "deno run -A --watch --env-file=.env apps/web/main.ts",
