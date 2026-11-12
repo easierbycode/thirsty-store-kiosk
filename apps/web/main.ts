@@ -1,14 +1,11 @@
 import { fromFileUrl, join } from "https://deno.land/std/path/mod.ts";
-import {
-  envValue,
-  fetchRecentProducts,
-  graylogConfigFromEnv,
-} from "./core/graylog.ts";
+import { envValue, graylogConfigFromEnv } from "./core/graylog.ts";
 import {
   fetchComparisonWithEdits,
   fetchPriceForSample,
   fetchProductWithEdits,
   fetchSampleValuationWithEdits,
+  listProducts,
   listUnpricedSamples,
   updateSamplePrice,
   upsertSampleProduct,
@@ -28,9 +25,31 @@ if (import.meta.main) {
   startWebApp();
 }
 
-async function handleRequest(req: Request): Promise<Response> {
+// The product API doubles as the catalog source for sibling apps (e.g. the
+// sample tracker at admin.thirsty.store), so cross-origin reads are allowed.
+const CORS_HEADERS = {
+  "access-control-allow-origin": "*",
+  "access-control-allow-methods": "GET,POST,PATCH,OPTIONS",
+  "access-control-allow-headers": "content-type,x-kiosk-id",
+};
+
+export async function handleRequest(req: Request): Promise<Response> {
   const url = new URL(req.url);
 
+  if (req.method === "OPTIONS" && url.pathname.startsWith("/api/")) {
+    return new Response(null, { status: 204, headers: CORS_HEADERS });
+  }
+
+  const response = await routeRequest(req, url);
+  if (url.pathname.startsWith("/api/")) {
+    for (const [name, value] of Object.entries(CORS_HEADERS)) {
+      response.headers.set(name, value);
+    }
+  }
+  return response;
+}
+
+async function routeRequest(req: Request, url: URL): Promise<Response> {
   try {
     if (url.pathname === "/api/health") {
       const graylog = graylogConfigFromEnv();
@@ -99,7 +118,7 @@ async function handleRequest(req: Request): Promise<Response> {
 
     if (url.pathname === "/api/products") {
       return Response.json(
-        await fetchRecentProducts(Number(url.searchParams.get("limit") || 100)),
+        await listProducts(Number(url.searchParams.get("limit") || 100)),
       );
     }
 
@@ -148,8 +167,21 @@ async function handleRequest(req: Request): Promise<Response> {
       return Response.json(await fetchSampleValuationWithEdits());
     }
 
+    // Thirsty OS desktop shell (root) and the apps it launches in windows.
     if (url.pathname === "/") {
       return staticFile("index.html", "text/html");
+    }
+
+    if (url.pathname === "/inventory" || url.pathname === "/inventory.html") {
+      return staticFile("inventory.html", "text/html");
+    }
+
+    if (url.pathname === "/os.js") {
+      return staticFile("os.js", "text/javascript");
+    }
+
+    if (url.pathname === "/os.css") {
+      return staticFile("os.css", "text/css");
     }
 
     if (url.pathname === "/ui.js") {

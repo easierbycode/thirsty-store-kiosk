@@ -1,0 +1,6 @@
+{
+  "lock": false,
+  "tasks": {
+    "build": "deno check main.ts"
+  }
+}

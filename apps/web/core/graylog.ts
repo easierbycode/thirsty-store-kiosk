@@ -28,6 +28,7 @@ export type ProductAnalysis = {
   sampleCount: number;
   estimatedRetailValue: number;
   lastSeen: string | null;
+  image?: string | null;
 };
 
 export type ComparisonRow = {
@@ -137,6 +138,97 @@ const SEARCH_FIELDS = [
   "items_sold",
   "scrapedAt",
 ];
+
+export type GraylogGelfConfig = {
+  url: string;
+  key?: string;
+};
+
+// The GELF HTTP input is the system's write path: every scraper persists by
+// posting GELF messages, and this app reads them back through the search API.
+// GRAYLOG_GELF_URL overrides; otherwise the endpoint is derived from the API
+// base, since the ngrok tunnels expose graylog-api and graylog-gelf side by
+// side (see tok-scrape's ngrok.yml). The sidecar-minted GRAYLOG_TOKEN doubles
+// as the `_graylog_key` the scrapers stamp on every message.
+export function graylogGelfConfigFromEnv(): GraylogGelfConfig | null {
+  const key = envValue("GRAYLOG_GELF_KEY") || envValue("GRAYLOG_TOKEN");
+  const explicit = (envValue("GRAYLOG_GELF_URL") || "").replace(/\/+$/, "");
+  if (explicit) {
+    return {
+      url: explicit.endsWith("/gelf") ? explicit : `${explicit}/gelf`,
+      key,
+    };
+  }
+
+  try {
+    const url = new URL(
+      envValue("GRAYLOG_API_URL") || envValue("GRAYLOG_URL") || "",
+    );
+    if (url.hostname.includes("-api.")) {
+      url.hostname = url.hostname.replace("-api.", "-gelf.");
+      url.pathname = "/gelf";
+      url.search = "";
+      return { url: url.href, key };
+    }
+  } catch {
+    // No usable Graylog base URL — GELF writes are simply unavailable.
+  }
+
+  return null;
+}
+
+export async function sendGelfMessage(
+  shortMessage: string,
+  fields: Record<string, unknown>,
+): Promise<boolean> {
+  const config = graylogGelfConfigFromEnv();
+  if (!config) return false;
+
+  const payload: Record<string, unknown> = {
+    version: "1.1",
+    host: "thirsty-store-kiosk",
+    short_message: shortMessage,
+    ...(config.key ? { _graylog_key: config.key } : {}),
+  };
+  for (const [name, value] of Object.entries(fields)) {
+    if (value === undefined || value === null || value === "") continue;
+    payload[`_${name}`] = value;
+  }
+
+  try {
+    const response = await fetch(config.url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+// Price edits are written back to Graylog as `sample_edit_json` fields so they
+// survive redeploys (the deployed filesystem is ephemeral). Returns the parsed
+// edit records, newest first; errors degrade to "no recovered edits" so reads
+// still work from the local store alone.
+export async function fetchSampleEditRecords(
+  limit = 500,
+): Promise<Record<string, unknown>[]> {
+  const config = graylogConfigFromEnv();
+  if (!config) return [];
+
+  try {
+    const messages = await searchGraylog(config, "sample_edit_json:*", limit, [
+      "timestamp",
+      "sample_edit_json",
+    ]);
+    return messages
+      .map((message) => parseJsonValue(message.sample_edit_json))
+      .filter(isRecord);
+  } catch {
+    return [];
+  }
+}
 
 export function graylogConfigFromEnv(): GraylogConfig | null {
   const url = normalizeGraylogUrl(
@@ -323,6 +415,7 @@ async function searchGraylog(
   config: GraylogConfig,
   query: string,
   limit: number,
+  fields: string[] = SEARCH_FIELDS,
 ): Promise<Record<string, unknown>[]> {
   const url = new URL(`${config.url}/api/search/messages`);
   const body = {
@@ -331,7 +424,7 @@ async function searchGraylog(
     size: limit,
     sort: "timestamp",
     sort_order: "Descending",
-    fields: SEARCH_FIELDS,
+    fields,
     ...(config.streamId ? { streams: [config.streamId] } : {}),
   };
 
@@ -566,6 +659,18 @@ function normalizeProduct(
         "updated_at",
       ]),
     ) || null,
+    image: stringFrom(
+      first(source, [
+        "image",
+        "image_url",
+        "imageUrl",
+        "picture_url",
+        "pictureUrl",
+        "cover",
+        "thumbnail",
+        "img",
+      ]),
+    ) || null,
   };
 }
 
@@ -612,6 +717,7 @@ function mergeProduct(
     lastSeen:
       [current.lastSeen, incoming.lastSeen].filter(Boolean).sort().at(-1) ||
       null,
+    image: incoming.image || current.image || null,
   };
 }
 

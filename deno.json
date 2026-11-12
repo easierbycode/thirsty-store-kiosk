@@ -3,9 +3,19 @@
     "webview": "jsr:@webview/webview@0.8.1"
   },
   "tasks": {
+    "build": "deno check apps/web/main.ts",
     "build:web": "deno run -A --watch --env-file=.env apps/web/main.ts",
     "build:mac": "deno compile --allow-all --env-file=.env --include apps/web/public --output dist/thirsty-mac apps/admin/src/main.ts",
     "build:windows": "deno compile --allow-all --env-file=.env --include apps/web/public --output dist/thirsty-win.exe apps/admin/src/main.ts",
     "build:ps2": "echo ps2 build stub"
+  },
+  "deploy": {
+    "org": "easierbycode",
+    "app": "thirsty-store-kiosk",
+    "framework": "",
+    "build": "deno task build",
+    "runtime": {
+      "entrypoint": "./apps/web/main.ts"
+    }
   }
 }
